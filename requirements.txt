@@ -1,9 +1,6 @@
-# Streamlit Cloud 배포용 의존성
-# 버전을 고정해 재현 가능한 환경을 보장한다
-
-streamlit==1.45.0
-pandas==2.2.3
-sqlalchemy==2.0.36
-psycopg2-binary==2.9.10
-plotly==5.24.1
-python-dotenv==1.0.1
+streamlit>=1.40.0
+pandas>=2.0.0
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+plotly>=5.20.0
+python-dotenv>=1.0.0
