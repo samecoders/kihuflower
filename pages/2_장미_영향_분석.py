@@ -1,6 +1,5 @@
 """
 원유 가격 × 장미 경매 × 기념일 영향 분석 대시보드
-app.py와 독립적으로 운영 — 기존 flower_auction 테이블 불변
 """
 
 import warnings
@@ -19,7 +18,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ── 페이지 설정 ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="장미 가격 영향 분석 대시보드",
     page_icon="🌹",
@@ -70,9 +68,9 @@ def load_all() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
             text("SELECT holiday_date, holiday_name FROM holidays ORDER BY holiday_date"), conn
         )
 
-    oil["price_date"]    = pd.to_datetime(oil["price_date"])
-    rose["clcln_ymd"]    = pd.to_datetime(rose["clcln_ymd"])
-    hol["holiday_date"]  = pd.to_datetime(hol["holiday_date"])
+    oil["price_date"]   = pd.to_datetime(oil["price_date"])
+    rose["clcln_ymd"]   = pd.to_datetime(rose["clcln_ymd"])
+    hol["holiday_date"] = pd.to_datetime(hol["holiday_date"])
     return oil, rose, hol
 
 
@@ -114,7 +112,6 @@ with st.sidebar:
 st.title("🌹 원유·기념일이 장미 도매가에 미치는 영향 분석")
 st.divider()
 
-# 데이터 로드
 try:
     oil_df, rose_df, hol_df = load_all()
 except Exception as e:
@@ -131,7 +128,6 @@ if "Tab 1" in tab_sel:
     merged = monthly_agg(oil_df, rose_df)
     corr   = merged["oil"].corr(merged["rose"])
 
-    # ── KPI ──────────────────────────────────────────────────────────────────
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("유가-장미 상관계수 (월별)", f"{corr:.3f}",
               delta="양의 상관" if corr > 0 else "음의 상관")
@@ -139,33 +135,26 @@ if "Tab 1" in tab_sel:
     c3.metric("장미 평균단가",  f"₩{rose_df['avrg_utpc'].mean():,.0f}")
     c4.metric("두바이 원유 평균", f"${oil_df['dubai'].mean():.1f}/bbl")
 
-    # ── 이중 Y축 꺾은선 그래프 ─────────────────────────────────────────────
     view = st.radio("기간 단위", ["월별", "일별"], horizontal=True, key="t1_view")
 
     if view == "월별":
-        x_oil   = merged.index
-        y_oil   = merged["oil"]
-        x_rose  = merged.index
-        y_rose  = merged["rose"]
-        title   = "두바이 원유가 vs 장미 평균단가 (월별 집계)"
+        x_oil, y_oil   = merged.index, merged["oil"]
+        x_rose, y_rose = merged.index, merged["rose"]
+        title = "두바이 원유가 vs 장미 평균단가 (월별 집계)"
     else:
-        rose_d  = rose_df.groupby("clcln_ymd")["avrg_utpc"].mean().reset_index()
-        x_oil   = oil_df["price_date"]
-        y_oil   = oil_df["dubai"]
-        x_rose  = rose_d["clcln_ymd"]
-        y_rose  = rose_d["avrg_utpc"]
-        title   = "두바이 원유가 vs 장미 평균단가 (일별)"
+        rose_d = rose_df.groupby("clcln_ymd")["avrg_utpc"].mean().reset_index()
+        x_oil, y_oil   = oil_df["price_date"], oil_df["dubai"]
+        x_rose, y_rose = rose_d["clcln_ymd"], rose_d["avrg_utpc"]
+        title = "두바이 원유가 vs 장미 평균단가 (일별)"
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=x_oil, y=y_oil,
-        name="두바이 원유가 (USD/bbl)", yaxis="y1",
+        x=x_oil, y=y_oil, name="두바이 원유가 (USD/bbl)", yaxis="y1",
         line=dict(color="#e07b39", width=2),
         mode="lines+markers" if view == "월별" else "lines",
     ))
     fig.add_trace(go.Scatter(
-        x=x_rose, y=y_rose,
-        name="장미 평균단가 (원)", yaxis="y2",
+        x=x_rose, y=y_rose, name="장미 평균단가 (원)", yaxis="y2",
         line=dict(color="#e91e8c", width=2),
         mode="lines+markers" if view == "월별" else "lines",
     ))
@@ -199,27 +188,25 @@ elif "Tab 2" in tab_sel:
 
     merged = monthly_agg(oil_df, rose_df)
 
-    # ── Lag별 피어슨 상관계수 ─────────────────────────────────────────────
     lag_rows = []
     for lag in range(4):
         tmp = pd.DataFrame({
-            "rose": merged["rose"],
+            "rose":    merged["rose"],
             "oil_lag": merged["oil"].shift(lag),
         }).dropna()
         r = tmp["rose"].corr(tmp["oil_lag"])
         lag_rows.append({"lag": lag, "label": f"Lag {lag}  (당월 -{lag}개월)", "r": r})
-    lag_df = pd.DataFrame(lag_rows)
+    lag_df   = pd.DataFrame(lag_rows)
     best_lag = int(lag_df.loc[lag_df["r"].abs().idxmax(), "lag"])
 
-    # ── Granger 검정 (1차 차분으로 정상화, RangeIndex로 변환해서 전달) ──
-    diff = merged.diff().dropna().reset_index(drop=True)
+    diff    = merged.diff().dropna().reset_index(drop=True)
     gc_rows = []
     try:
         gc = grangercausalitytests(diff[["rose", "oil"]], maxlag=3, verbose=False)
         for k, res in gc.items():
             f, p = res[0]["ssr_ftest"][:2]
             gc_rows.append({
-                "시차": f"Lag {k}",
+                "시차":     f"Lag {k}",
                 "F-통계량": round(f, 3),
                 "p-value":  round(p, 4),
                 "유의 여부": "✅ 유의 (p<0.05)" if p < 0.05 else "❌ 비유의",
@@ -227,7 +214,6 @@ elif "Tab 2" in tab_sel:
     except Exception as e:
         st.warning(f"Granger 검정 오류 (데이터 부족 가능): {e}")
 
-    # ── KPI ──────────────────────────────────────────────────────────────
     best_r = float(lag_df.loc[lag_df["lag"] == best_lag, "r"].iloc[0])
     c1, c2, c3 = st.columns(3)
     c1.metric("최고 상관 시차", f"Lag {best_lag}개월")
@@ -237,19 +223,15 @@ elif "Tab 2" in tab_sel:
         c3.metric("Granger 최소 p-value", f"{best_gc['p-value']:.4f}",
                   delta=best_gc["유의 여부"])
 
-    # ── Granger 결과 테이블 ───────────────────────────────────────────────
     if gc_rows:
         st.markdown("#### Granger Causality 검정 결과 (1차 차분 기준)")
         st.dataframe(pd.DataFrame(gc_rows), use_container_width=True, hide_index=True)
 
-    # ── 막대 그래프: Lag별 상관계수 ──────────────────────────────────────
     st.markdown("#### Lag별 피어슨 상관계수")
-    bar_colors = [
-        "#e91e8c" if r["lag"] == best_lag else "#f4a7c3" for _, r in lag_df.iterrows()
-    ]
+    bar_colors = ["#e91e8c" if r["lag"] == best_lag else "#f4a7c3"
+                  for _, r in lag_df.iterrows()]
     fig_lag = go.Figure(go.Bar(
-        x=lag_df["label"],
-        y=lag_df["r"],
+        x=lag_df["label"], y=lag_df["r"],
         marker_color=bar_colors,
         text=[f"{v:.3f}" for v in lag_df["r"]],
         textposition="outside",
@@ -265,7 +247,6 @@ elif "Tab 2" in tab_sel:
     )
     st.plotly_chart(fig_lag, use_container_width=True)
 
-    # ── 최적 Lag 산점도 ───────────────────────────────────────────────────
     st.markdown(f"#### 최적 시차 (Lag {best_lag}개월) 산점도")
     scat = pd.DataFrame({
         "rose":    merged["rose"],
@@ -301,13 +282,10 @@ elif "Tab 2" in tab_sel:
 elif "Tab 3" in tab_sel:
     st.subheader("🎉 기념일 이벤트 효과 분석")
 
-    # ── 분석 대상 기념일 필터 ─────────────────────────────────────────────
     hol_df["month"] = hol_df["holiday_date"].dt.month
     hol_df["day"]   = hol_df["holiday_date"].dt.day
-
     target = hol_df[
-        (hol_df["month"] == 5) |   # 5월 가정의 달 전체
-        (hol_df["day"] == 14)      # 매월 14일 기념일
+        (hol_df["month"] == 5) | (hol_df["day"] == 14)
     ].copy().reset_index(drop=True)
 
     if target.empty:
@@ -324,7 +302,6 @@ elif "Tab 3" in tab_sel:
             use_container_width=True, hide_index=True,
         )
 
-    # ── 이벤트 윈도우 분석 (D-7 ~ 당일) ─────────────────────────────────
     rose_d = rose_df.groupby("clcln_ymd")["avrg_utpc"].mean().reset_index()
     rose_d.columns = ["date", "price"]
 
@@ -345,12 +322,12 @@ elif "Tab 3" in tab_sel:
         premium  = (ev_avg - base_avg) / base_avg * 100 if base_avg > 0 else 0
 
         rows.append({
-            "기념일":           h_name,
-            "날짜":             h_date.strftime("%Y-%m-%d"),
-            "이벤트 평균가(원)": round(ev_avg),
+            "기념일":            h_name,
+            "날짜":              h_date.strftime("%Y-%m-%d"),
+            "이벤트 평균가(원)":  round(ev_avg),
             "월 평시 평균가(원)": round(base_avg),
-            "가격 프리미엄(%)":  round(premium, 2),
-            "윈도우 데이터 수":  len(win),
+            "가격 프리미엄(%)":   round(premium, 2),
+            "윈도우 데이터 수":   len(win),
         })
 
     if not rows:
@@ -359,11 +336,11 @@ elif "Tab 3" in tab_sel:
 
     res = pd.DataFrame(rows).sort_values("가격 프리미엄(%)", ascending=False)
 
-    with col_r:
-        def _color_premium(val):
-            color = "#d4edda" if val > 0 else ("#f8d7da" if val < 0 else "")
-            return f"background-color: {color}"
+    def _color_premium(val):
+        color = "#d4edda" if val > 0 else ("#f8d7da" if val < 0 else "")
+        return f"background-color: {color}"
 
+    with col_r:
         st.markdown("**기념일별 가격 프리미엄 분석표**")
         st.dataframe(
             res.style
@@ -371,12 +348,11 @@ elif "Tab 3" in tab_sel:
                .format({
                    "이벤트 평균가(원)":  "₩{:,.0f}",
                    "월 평시 평균가(원)": "₩{:,.0f}",
-                   "가격 프리미엄(%)":  "{:+.2f}%",
+                   "가격 프리미엄(%)":   "{:+.2f}%",
                }),
             use_container_width=True, hide_index=True,
         )
 
-    # ── 막대 그래프: 가격 프리미엄 ───────────────────────────────────────
     st.markdown("#### 기념일별 장미 가격 프리미엄 (이벤트 윈도우 D-7 ~ 당일)")
     fig_ev = go.Figure(go.Bar(
         x=res["기념일"],
@@ -387,18 +363,14 @@ elif "Tab 3" in tab_sel:
     ))
     fig_ev.add_hline(y=0, line_dash="dash", line_color="gray", line_width=1)
     fig_ev.update_layout(
-        xaxis_title="기념일",
-        yaxis_title="가격 프리미엄 (%)",
-        xaxis_tickangle=-30,
-        template="plotly_white",
-        font=dict(family=KO_FONT),
-        margin=dict(t=40, b=100),
+        xaxis_title="기념일", yaxis_title="가격 프리미엄 (%)",
+        xaxis_tickangle=-30, template="plotly_white",
+        font=dict(family=KO_FONT), margin=dict(t=40, b=100),
     )
     st.plotly_chart(fig_ev, use_container_width=True)
 
-    # ── 기념일별 이벤트 윈도우 상세 시계열 ───────────────────────────────
     st.markdown("#### 이벤트 윈도우 상세 보기")
-    sel_hol = st.selectbox("기념일 선택", res["기념일"].tolist(), key="hol_sel")
+    sel_hol  = st.selectbox("기념일 선택", res["기념일"].tolist(), key="hol_sel")
     sel_row  = res[res["기념일"] == sel_hol].iloc[0]
     sel_date = pd.to_datetime(sel_row["날짜"])
 
@@ -407,12 +379,11 @@ elif "Tab 3" in tab_sel:
         (rose_d["date"] <= sel_date + pd.Timedelta(days=7))
     ]
     if not ctx.empty:
+        w0_str  = (sel_date - pd.Timedelta(days=7)).strftime("%Y-%m-%d")
+        sel_str = sel_date.strftime("%Y-%m-%d")
         fig_ctx = go.Figure()
-        w0_str    = (sel_date - pd.Timedelta(days=7)).strftime("%Y-%m-%d")
-        sel_str   = sel_date.strftime("%Y-%m-%d")
         fig_ctx.add_vrect(
-            x0=w0_str, x1=sel_str,
-            fillcolor="#ffe0ef", opacity=0.35,
+            x0=w0_str, x1=sel_str, fillcolor="#ffe0ef", opacity=0.35,
             layer="below", line_width=0,
             annotation_text="이벤트 윈도우 (D-7 ~ D)",
             annotation_position="top left",
@@ -420,8 +391,7 @@ elif "Tab 3" in tab_sel:
         )
         fig_ctx.add_trace(go.Scatter(
             x=ctx["date"], y=ctx["price"],
-            mode="lines+markers",
-            name="장미 평균단가",
+            mode="lines+markers", name="장미 평균단가",
             line=dict(color="#e91e8c", width=2.5),
             marker=dict(size=7),
         ))
@@ -437,12 +407,9 @@ elif "Tab 3" in tab_sel:
         )
         fig_ctx.update_layout(
             title=f"{sel_hol} 전후 장미 평균단가 변화",
-            xaxis_title="날짜",
-            yaxis_title="평균단가 (원)",
-            yaxis_tickformat=",",
-            template="plotly_white",
-            font=dict(family=KO_FONT),
-            margin=dict(t=60, b=20),
+            xaxis_title="날짜", yaxis_title="평균단가 (원)",
+            yaxis_tickformat=",", template="plotly_white",
+            font=dict(family=KO_FONT), margin=dict(t=60, b=20),
         )
         st.plotly_chart(fig_ctx, use_container_width=True)
 
@@ -464,49 +431,39 @@ elif "Tab 3" in tab_sel:
 elif "Tab 4" in tab_sel:
     st.subheader("📦 등급별 가격 분산 분석 (One-Way ANOVA)")
 
-    # ── 100개 이상 등급 필터 ─────────────────────────────────────────────
-    grade_cnt   = rose_df["grad_nm"].value_counts()
+    grade_cnt    = rose_df["grad_nm"].value_counts()
     valid_grades = grade_cnt[grade_cnt >= 100].index.tolist()
-    rf          = rose_df[rose_df["grad_nm"].isin(valid_grades)].copy()
+    rf           = rose_df[rose_df["grad_nm"].isin(valid_grades)].copy()
 
-    # 평균가 기준 내림차순 정렬
     grade_order = (
         rf.groupby("grad_nm")["avrg_utpc"].mean()
           .sort_values(ascending=False)
           .index.tolist()
     )
-
     summary = (
         rf.groupby("grad_nm")["avrg_utpc"]
           .agg(count="count", mean="mean", std="std", median="median")
           .reindex(grade_order)
           .reset_index()
           .rename(columns={
-              "grad_nm": "등급",
-              "count":   "데이터 수",
-              "mean":    "평균가(원)",
-              "std":     "표준편차",
-              "median":  "중간값(원)",
+              "grad_nm": "등급", "count": "데이터 수",
+              "mean": "평균가(원)", "std": "표준편차", "median": "중간값(원)",
           })
     )
 
-    # ── One-Way ANOVA ────────────────────────────────────────────────────
     groups  = [rf[rf["grad_nm"] == g]["avrg_utpc"].dropna().values for g in grade_order]
     f_stat, p_val = stats.f_oneway(*groups)
 
-    # ── KPI ──────────────────────────────────────────────────────────────
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("분석 등급 수",  f"{len(valid_grades)}개 (n≥100)")
     c2.metric("전체 샘플 수",  f"{len(rf):,}건")
     c3.metric("F-통계량",      f"{f_stat:,.2f}")
     c4.metric(
-        "p-value",
-        f"{p_val:.2e}",
+        "p-value", f"{p_val:.2e}",
         delta="유의 (p<0.05)" if p_val < 0.05 else "비유의",
         delta_color="normal" if p_val < 0.05 else "inverse",
     )
 
-    # ── 요약 테이블 ───────────────────────────────────────────────────────
     def _color_grade(val):
         max_v = summary["평균가(원)"].max()
         min_v = summary["평균가(원)"].min()
@@ -529,11 +486,9 @@ elif "Tab 4" in tab_sel:
         use_container_width=True, hide_index=True,
     )
 
-    # ── Boxplot ───────────────────────────────────────────────────────────
     st.markdown("#### 등급별 평균단가 분포 (Boxplot)")
     fig_box = px.box(
-        rf, x="grad_nm", y="avrg_utpc",
-        color="grad_nm",
+        rf, x="grad_nm", y="avrg_utpc", color="grad_nm",
         category_orders={"grad_nm": grade_order},
         labels={"grad_nm": "등급", "avrg_utpc": "평균단가 (원)"},
         template="plotly_white",
@@ -541,23 +496,15 @@ elif "Tab 4" in tab_sel:
         points="outliers",
     )
     fig_box.update_layout(
-        showlegend=False,
-        yaxis_tickformat=",",
-        font=dict(family=KO_FONT),
-        margin=dict(t=40, b=20),
+        showlegend=False, yaxis_tickformat=",",
+        font=dict(family=KO_FONT), margin=dict(t=40, b=20),
     )
     st.plotly_chart(fig_box, use_container_width=True)
 
-    # ── 등급별 평균가 막대 그래프 ─────────────────────────────────────────
     st.markdown("#### 등급별 평균단가 비교")
     fig_bar = go.Figure(go.Bar(
-        x=summary["등급"],
-        y=summary["평균가(원)"],
-        marker=dict(
-            color=summary["평균가(원)"],
-            colorscale="RdPu",
-            showscale=False,
-        ),
+        x=summary["등급"], y=summary["평균가(원)"],
+        marker=dict(color=summary["평균가(원)"], colorscale="RdPu", showscale=False),
         error_y=dict(type="data", array=summary["표준편차"].tolist(), visible=True),
         text=[f"₩{v:,.0f}" for v in summary["평균가(원)"]],
         textposition="outside",
@@ -566,16 +513,13 @@ elif "Tab 4" in tab_sel:
         xaxis_title="등급",
         yaxis=dict(title="평균단가 (원)", tickformat=","),
         template="plotly_white",
-        font=dict(family=KO_FONT),
-        margin=dict(t=40, b=20),
+        font=dict(family=KO_FONT), margin=dict(t=40, b=20),
     )
     st.plotly_chart(fig_bar, use_container_width=True)
 
     sig_yn = "**통계적으로 유의미합니다**" if p_val < 0.05 else "통계적으로 유의미하지 않습니다"
-    top_g  = summary.iloc[0]["등급"]
-    bot_g  = summary.iloc[-1]["등급"]
-    top_v  = summary.iloc[0]["평균가(원)"]
-    bot_v  = summary.iloc[-1]["평균가(원)"]
+    top_g, bot_g = summary.iloc[0]["등급"], summary.iloc[-1]["등급"]
+    top_v, bot_v = summary.iloc[0]["평균가(원)"], summary.iloc[-1]["평균가(원)"]
     st.info(f"""
 **인사이트**
 - One-Way ANOVA 결과: **F = {f_stat:,.2f}**, **p = {p_val:.2e}** → 등급 간 가격 차이는 {sig_yn} (α = 0.05).
